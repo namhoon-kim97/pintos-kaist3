@@ -62,18 +62,18 @@ err:
 struct page *
 spt_find_page(struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
     struct page *page = NULL;
+    struct page _page;
+    _page.va = va;
     /* TODO: Fill this function. */
-
+    page = hash_entry(hash_find(&spt->pages, &_page.hash_elem), struct page, hash_elem);
     return page;
 }
 
 /* Insert PAGE into spt with validation. */
 bool spt_insert_page(struct supplemental_page_table *spt UNUSED,
                      struct page *page UNUSED) {
-    int succ = false;
     /* TODO: Fill this function. */
-
-    return succ;
+    return !hash_insert(&spt->pages, &page->hash_elem);
 }
 
 void spt_remove_page(struct supplemental_page_table *spt, struct page *page) {
@@ -106,7 +106,8 @@ vm_evict_frame(void) {
  * space.*/
 static struct frame *
 vm_get_frame(void) {
-    struct frame *frame = NULL;
+    struct frame *frame = malloc(sizeof *frame);
+    frame->kva = palloc_get_page(PAL_ZERO | PAL_USER);
     /* TODO: Fill this function. */
 
     ASSERT(frame != NULL);
@@ -144,7 +145,7 @@ void vm_dealloc_page(struct page *page) {
 
 /* Claim the page that allocate on VA. */
 bool vm_claim_page(void *va UNUSED) {
-    struct page *page = NULL;
+    struct page *page = palloc_get_page(PAL_ZERO | PAL_USER);
     /* TODO: Fill this function */
 
     return vm_do_claim_page(page);
@@ -154,18 +155,19 @@ bool vm_claim_page(void *va UNUSED) {
 static bool
 vm_do_claim_page(struct page *page) {
     struct frame *frame = vm_get_frame();
-
+    struct thread *curr = thread_current();
     /* Set links */
     frame->page = page;
     page->frame = frame;
 
     /* TODO: Insert page table entry to map page's VA to frame's PA. */
-
+    spt_insert_page(&curr->spt.pages, &page->hash_elem);
     return swap_in(page, frame->kva);
 }
 
 /* Initialize new supplemental page table */
 void supplemental_page_table_init(struct supplemental_page_table *spt UNUSED) {
+    hash_init(&spt->pages, page_hash, page_less, NULL);
 }
 
 /* Copy supplemental page table from src to dst */
@@ -177,4 +179,18 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED,
 void supplemental_page_table_kill(struct supplemental_page_table *spt UNUSED) {
     /* TODO: Destroy all the supplemental_page_table hold by thread and
      * TODO: writeback all the modified contents to the storage. */
+}
+
+unsigned
+page_hash(const struct hash_elem *p_, void *aux UNUSED) {
+    const struct page *p = hash_entry(p_, struct page, hash_elem);
+    return hash_bytes(&p->va, sizeof p->va);
+}
+
+bool page_less(const struct hash_elem *a_,
+               const struct hash_elem *b_, void *aux UNUSED) {
+    const struct page *a = hash_entry(a_, struct page, hash_elem);
+    const struct page *b = hash_entry(b_, struct page, hash_elem);
+
+    return a->va < b->va;
 }
