@@ -783,6 +783,7 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
         read_bytes -= page_read_bytes;
         zero_bytes -= page_zero_bytes;
         upage += PGSIZE;
+        ofs += read_bytes;
     }
     return true;
 }
@@ -802,7 +803,7 @@ setup_stack(struct intr_frame *if_) {
         return false;
     if (!vm_claim_page(stack_bottom))
         return false;
-    if_->rsp = stack_bottom;
+    if_->rsp = USER_STACK;
     return true;
 }
 #endif /* VM */
