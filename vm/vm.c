@@ -53,7 +53,8 @@ bool vm_alloc_page_with_initializer(enum vm_type type, void *upage, bool writabl
          * TODO: and then create "uninit" page struct by calling uninit_new. You
          * TODO: should modify the field after calling the uninit_new. */
         struct page *page = calloc(1, sizeof *page);
-        switch (type) {
+        page->writable = writable;
+        switch (VM_TYPE(type)) {
         case VM_ANON:
             uninit_new(page, upage, init, type, aux, anon_initializer);
             break;
@@ -76,7 +77,7 @@ struct page *
 spt_find_page(struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
     struct page *page = NULL;
     struct page _page;
-    _page.va = va;
+    _page.va = pg_round_down(va);
     struct hash_elem *find_elem = hash_find(&spt->pages, &_page.hash_elem);
     /* TODO: Fill this function. */
     if (!find_elem)

@@ -720,7 +720,7 @@ lazy_load_segment(struct page *page, void *aux) {
     uint8_t *kpage = page->frame->kva;
     if (kpage == NULL)
         return false;
-
+    file_seek(info->file, info->offset);
     /* Load this page. */
     if (file_read(info->file, kpage, info->page_read_bytes) != (int)info->page_read_bytes) {
         palloc_free_page(kpage);
@@ -798,7 +798,12 @@ setup_stack(struct intr_frame *if_) {
      * TODO: You should mark the page is stack. */
     /* TODO: Your code goes here */
 
-    return success;
+    if (!vm_alloc_page(VM_ANON | VM_MARKER_0, stack_bottom, true))
+        return false;
+    if (!vm_claim_page(stack_bottom))
+        return false;
+    if_->rsp = stack_bottom;
+    return true;
 }
 #endif /* VM */
 
