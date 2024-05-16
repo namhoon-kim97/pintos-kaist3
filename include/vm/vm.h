@@ -57,9 +57,9 @@ struct page {
 #ifdef EFILESYS
 		struct page_cache page_cache;
 #endif
-	};
-
+    };
     struct hash_elem hash_elem;
+    bool writable;
 };
 
 /* The representation of "frame" */
