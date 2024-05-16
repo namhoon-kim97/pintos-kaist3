@@ -60,9 +60,6 @@ bool vm_alloc_page_with_initializer(enum vm_type type, void *upage, bool writabl
         case VM_FILE:
             uninit_new(page, upage, init, type, aux, file_backed_initializer);
             break;
-        // case VM_PAGE_CACHE:
-        //     uninit_new(page, upage, init, type, aux, fil);
-        //     break;
         default:
             break;
         }
@@ -151,8 +148,14 @@ bool vm_try_handle_fault(struct intr_frame *f UNUSED, void *addr UNUSED,
                          bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
     struct supplemental_page_table *spt UNUSED = &thread_current()->spt;
     struct page *page = NULL;
+    if (!not_present)
+        return false; // copy-on-wrtie 구현하면 여기서 함수 호출;
     /* TODO: Validate the fault */
     /* TODO: Your code goes here */
+    struct hash_elem *h = hash_find(&spt->pages, addr);
+    if (!h)
+        return false;
+    page = hash_entry(h, struct page, hash_elem);
 
     return vm_do_claim_page(page);
 }
