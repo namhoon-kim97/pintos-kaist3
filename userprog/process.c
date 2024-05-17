@@ -161,8 +161,9 @@ __do_fork(void *aux) {
     process_activate(current);
 #ifdef VM
     supplemental_page_table_init(&current->spt);
-    if (!supplemental_page_table_copy(&current->spt, &parent->spt))
+    if (!supplemental_page_table_copy(&current->spt, &parent->spt)) {
         goto error;
+    }
 #else
     if (!pml4_for_each(parent->pml4, duplicate_pte, parent))
         goto error;
@@ -723,11 +724,11 @@ lazy_load_segment(struct page *page, void *aux) {
     file_seek(info->file, info->offset);
     /* Load this page. */
     if (file_read(info->file, kpage, info->page_read_bytes) != (int)info->page_read_bytes) {
-        palloc_free_page(kpage);
+        // palloc_free_page(kpage);
         return false;
     }
-    memset(kpage + info->page_read_bytes, 0, info->page_zero_bytes);
-    free(info);
+    // memset(kpage + info->page_read_bytes, 0, info->page_zero_bytes);
+    //  free(info);
     return true;
     // /* Add the page to the process's address space. */
     // if (!install_page(page, kpage, writable))
@@ -775,7 +776,7 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
         info->page_zero_bytes = page_zero_bytes;
         info->offset = ofs;
         if (!vm_alloc_page_with_initializer(VM_ANON, upage, writable, lazy_load_segment, info)) {
-            free(info);
+            // free(info);
             return false;
         }
 
@@ -783,7 +784,7 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
         read_bytes -= page_read_bytes;
         zero_bytes -= page_zero_bytes;
         upage += PGSIZE;
-        ofs += read_bytes;
+        ofs += page_read_bytes;
     }
     return true;
 }
