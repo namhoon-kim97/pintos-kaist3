@@ -69,6 +69,7 @@ void syscall_handler(struct intr_frame *f UNUSED) {
     uint64_t syscall_num = f->R.rax;
     // TODO: Your implementation goes here.
     struct thread *curr = thread_current();
+    curr->user_rsp = f->rsp;
     switch (syscall_num) {
     case SYS_HALT:
         power_off(); /* Halt the operating system. */
