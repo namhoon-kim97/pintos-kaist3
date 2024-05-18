@@ -32,7 +32,7 @@ int write(int fd, const void *buffer, unsigned length);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
 void close(int fd);
-
+void check_buffer(uint64_t *buffer);
 int dup2(int oldfd, int newfd);
 
 /* lock for access file_sys code */
@@ -285,6 +285,12 @@ int read(int fd, void *buffer, unsigned length) {
 
     check_addr(buffer);
 
+    for (unsigned i = 0; i < length; i += PGSIZE) {
+        check_buffer((uint8_t *)buffer + i);
+    }
+
+    check_buffer((uint8_t *)buffer + length - 1);
+
     find_fd = get_fd(fd, &root_fd);
     if (find_fd != NULL) {
         if (find_fd->_stdin)
@@ -369,4 +375,12 @@ int dup2(int oldfd, int newfd) {
     list_push_back(&old_root_fd->dup_list, &new_fd->elem);
 
     return newfd;
+}
+
+void check_buffer(uint64_t *buffer) {
+    struct page *p = spt_find_page(&thread_current()->spt, buffer);
+    if (!p)
+        exit(-1);
+    if (!p->writable)
+        exit(-1);
 }

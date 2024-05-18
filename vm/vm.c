@@ -142,7 +142,7 @@ static void
 vm_stack_growth(void *addr UNUSED) {
     vm_alloc_page(VM_ANON | VM_MARKER_0, pg_round_down(addr), true);
 
-    if (vm_claim_page(addr)) {
+    if (!vm_claim_page(addr)) {
         PANIC("todo");
     }
 }
@@ -166,12 +166,12 @@ bool vm_try_handle_fault(struct intr_frame *f UNUSED, void *addr UNUSED,
 
     if (!page) {
 
-        if (pg_round_down(addr) > USER_STACK + PGSIZE - (1 << 20))
+        if (pg_round_down(addr) <= USER_STACK + PGSIZE - (1 << 20))
             return false;
 
         page = spt_find_page(spt, pg_round_up(addr));
 
-        if (page && (page_get_type(page) & VM_MARKER_0)) {
+        if (page && ((page->uninit.type) & VM_MARKER_0) && addr == thread_current()->user_rsp) {
             vm_stack_growth(addr);
             return true;
         }
