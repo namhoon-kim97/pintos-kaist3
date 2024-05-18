@@ -723,20 +723,10 @@ lazy_load_segment(struct page *page, void *aux) {
         return false;
     file_seek(info->file, info->offset);
     /* Load this page. */
-    if (file_read(info->file, kpage, info->page_read_bytes) != (int)info->page_read_bytes) {
-        // palloc_free_page(kpage);
+    if (file_read(info->file, kpage, info->page_read_bytes) != (int)info->page_read_bytes)
         return false;
-    }
-    // memset(kpage + info->page_read_bytes, 0, info->page_zero_bytes);
-    //  free(info);
+
     return true;
-    // /* Add the page to the process's address space. */
-    // if (!install_page(page, kpage, writable))
-    // {
-    //     printf("fail\n");
-    //     palloc_free_page(kpage);
-    //     return false;
-    // }
 }
 
 /* Loads a segment starting at offset OFS in FILE at address

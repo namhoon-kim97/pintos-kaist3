@@ -140,6 +140,11 @@ vm_get_frame(void) {
 /* Growing the stack. */
 static void
 vm_stack_growth(void *addr UNUSED) {
+    vm_alloc_page(VM_ANON | VM_MARKER_0, pg_round_down(addr), true);
+
+    if (!vm_claim_page(addr)) {
+        PANIC("todo");
+    }
 }
 
 /* Handle the fault on write_protected page */
@@ -158,8 +163,20 @@ bool vm_try_handle_fault(struct intr_frame *f UNUSED, void *addr UNUSED,
     /* TODO: Validate the fault */
     /* TODO: Your code goes here */
     page = spt_find_page(spt, addr);
-    if (!page)
+
+    if (!page) {
+
+        if (pg_round_down(addr) <= USER_STACK + PGSIZE - (1 << 20))
+            return false;
+
+        page = spt_find_page(spt, pg_round_up(addr));
+
+        if (page && ((page->uninit.type) & VM_MARKER_0) && addr == thread_current()->user_rsp) {
+            vm_stack_growth(addr);
+            return true;
+        }
         return false;
+    }
 
     return vm_do_claim_page(page);
 }
@@ -220,7 +237,7 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED,
             }
             continue;
         }
-        
+
         vm_alloc_page(src_type, src_page->va, src_page->writable);
 
         vm_claim_page(src_page->va);
