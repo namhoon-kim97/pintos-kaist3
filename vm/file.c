@@ -50,6 +50,7 @@ file_backed_swap_out(struct page *page) {
 static void
 file_backed_destroy(struct page *page) {
     struct file_page *file_page UNUSED = &page->file;
+
 }
 
 /* Do the mmap */
@@ -57,6 +58,7 @@ void *
 do_mmap(void *addr, size_t length, int writable,
         struct file *file, off_t offset) {
     void *ret = addr;
+    struct file *mapping_file = file_reopen(file);
 
     size_t read_bytes = length;
     size_t zero_bytes = length % PGSIZE;
@@ -71,11 +73,12 @@ do_mmap(void *addr, size_t length, int writable,
         struct load_info *info = malloc(sizeof *info);
         if (!info)
             return NULL;
-        info->file = file;
+        info->file = mapping_file;
         info->page_read_bytes = page_read_bytes;
         info->page_zero_bytes = page_zero_bytes;
         info->offset = offset;
-        if (!vm_alloc_page_with_initializer(VM_ANON, addr, writable, lazy_load_file, info)) {
+        // printf("offset = %d\n", offset);
+        if (!vm_alloc_page_with_initializer(VM_FILE, addr, writable, lazy_load_file, info)) {
             return NULL;
         }
 
@@ -90,6 +93,38 @@ do_mmap(void *addr, size_t length, int writable,
 
 /* Do the munmap */
 void do_munmap(void *addr) {
+    struct page *page;
+    struct load_info *info;
+    size_t file_size;
+    off_t offset = 0;
+    page = spt_find_page(&thread_current()->spt, addr);
+
+    if (!page)
+        return;
+
+    info = (struct load_info *)page->uninit.aux;
+    file_size = file_length(info->file);
+
+    size_t write_bytes = file_size;
+    size_t zero_bytes = file_size % PGSIZE;
+
+    while (write_bytes > 0 || zero_bytes > 0) {
+
+        size_t page_write_bytes = write_bytes < PGSIZE ? write_bytes : PGSIZE;
+        size_t page_zero_bytes = PGSIZE - page_write_bytes;
+
+        file_write(info->file, page->frame->kva, offset);
+
+        /* Advance. */
+        write_bytes -= page_write_bytes;
+        zero_bytes -= page_zero_bytes;
+        addr += PGSIZE;
+        offset += page_write_bytes;
+        spt_remove_page(&thread_current()->spt, page);
+        page = spt_find_page(&thread_current()->spt, addr);
+    }
+
+    file_close(info->file);
 }
 
 static bool
@@ -102,6 +137,7 @@ lazy_load_file(struct page *page, void *aux) {
     if (kpage == NULL)
         return false;
     file_seek(info->file, info->offset);
+
     /* Load this page. */
     if (file_read(info->file, kpage, info->page_read_bytes) != (int)info->page_read_bytes)
         return false;
