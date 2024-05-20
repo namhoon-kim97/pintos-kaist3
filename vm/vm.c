@@ -4,6 +4,7 @@
 #include "threads/malloc.h"
 #include "vm/inspect.h"
 #include "threads/mmu.h"
+#include "vm/file.h"
 #include <string.h>
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
@@ -38,6 +39,7 @@ static struct frame *vm_get_victim(void);
 static bool vm_do_claim_page(struct page *page);
 static struct frame *vm_evict_frame(void);
 static void hash_destroy_support(struct hash_elem *e, void *aux);
+static void write_contents(struct page *page);
 
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
@@ -55,6 +57,8 @@ bool vm_alloc_page_with_initializer(enum vm_type type, void *upage, bool writabl
          * TODO: and then create "uninit" page struct by calling uninit_new. You
          * TODO: should modify the field after calling the uninit_new. */
         struct page *page = calloc(1, sizeof *page);
+        if (!page)
+            return false;
 
         switch (VM_TYPE(type)) {
         case VM_ANON:
@@ -98,7 +102,6 @@ bool spt_insert_page(struct supplemental_page_table *spt UNUSED,
 }
 
 void spt_remove_page(struct supplemental_page_table *spt, struct page *page) {
-    page->frame->page = NULL;
     hash_delete(&spt->pages, &page->hash_elem);
     vm_dealloc_page(page);
     return true;
@@ -258,7 +261,12 @@ void supplemental_page_table_kill(struct supplemental_page_table *spt UNUSED) {
 
 static void hash_destroy_support(struct hash_elem *e, void *aux) {
     struct page *p = hash_entry(e, struct page, hash_elem);
-    vm_dealloc_page(p);
+    if (p->operations->type == VM_FILE) {
+        do_munmap(p->va);
+    } else {
+
+        vm_dealloc_page(p);
+    }
 }
 
 unsigned page_hash(const struct hash_elem *p_, void *aux UNUSED) {
@@ -272,4 +280,11 @@ bool page_less(const struct hash_elem *a_,
     const struct page *b = hash_entry(b_, struct page, hash_elem);
 
     return a->va < b->va;
+}
+
+static void write_contents(struct page *page) {
+    struct load_info *info = (struct load_info *)page->uninit.aux;
+    file_seek(info->file, info->offset);
+    file_write(info->file, page->frame->kva, info->page_read_bytes);
+    // file_close(info->file);
 }

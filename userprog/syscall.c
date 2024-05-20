@@ -399,13 +399,6 @@ void *mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
     if (!addr)
         return NULL;
 
-    // check_addr(addr);
-
-    // for (unsigned i = 0; i < length; i += PGSIZE) {
-    //     check_buffer((uint8_t *)addr + i);
-    // }
-
-    // check_buffer((uint8_t *)addr + length - 1);
 
     file_descriptor = get_fd(fd, &root_descriptor);
 
@@ -417,4 +410,5 @@ void *mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
 
 void munmap(void *addr) {
     do_munmap(addr);
+
 }

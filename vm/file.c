@@ -3,12 +3,7 @@
 #include "vm/vm.h"
 #include "threads/mmu.h"
 #include "threads/palloc.h"
-struct load_info {
-    struct file *file;
-    size_t page_read_bytes;
-    size_t page_zero_bytes;
-    off_t offset;
-};
+
 static bool file_backed_swap_in(struct page *page, void *kva);
 static bool file_backed_swap_out(struct page *page);
 static void file_backed_destroy(struct page *page);
@@ -50,7 +45,7 @@ file_backed_swap_out(struct page *page) {
 static void
 file_backed_destroy(struct page *page) {
     struct file_page *file_page UNUSED = &page->file;
-
+    printf("이건 파일 디스트로이\n");
 }
 
 /* Do the mmap */
@@ -61,11 +56,8 @@ do_mmap(void *addr, size_t length, int writable,
     struct file *mapping_file = file_reopen(file);
 
     size_t read_bytes = length;
-    size_t zero_bytes = length % PGSIZE;
+    size_t zero_bytes = PGSIZE - (length % PGSIZE);
     while (read_bytes > 0 || zero_bytes > 0) {
-        /* Do calculate how to fill this page.
-         * We will read PAGE_READ_BYTES bytes from FILE
-         * and zero the final PAGE_ZERO_BYTES bytes. */
         size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
         size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
@@ -96,7 +88,7 @@ void do_munmap(void *addr) {
     struct page *page;
     struct load_info *info;
     size_t file_size;
-    off_t offset = 0;
+    off_t offset;
     page = spt_find_page(&thread_current()->spt, addr);
 
     if (!page)
@@ -105,15 +97,19 @@ void do_munmap(void *addr) {
     info = (struct load_info *)page->uninit.aux;
     file_size = file_length(info->file);
 
-    size_t write_bytes = file_size;
-    size_t zero_bytes = file_size % PGSIZE;
+    size_t write_bytes = info->page_read_bytes;
+    size_t zero_bytes = write_bytes % PGSIZE;
+    offset = info->offset;
 
-    while (write_bytes > 0 || zero_bytes > 0) {
+    while ((write_bytes > 0 || zero_bytes > 0) && page) {
 
         size_t page_write_bytes = write_bytes < PGSIZE ? write_bytes : PGSIZE;
         size_t page_zero_bytes = PGSIZE - page_write_bytes;
 
-        file_write(info->file, page->frame->kva, offset);
+        if (pml4_is_dirty(thread_current()->pml4, addr)) {
+            file_seek(info->file, offset);
+            file_write(info->file, page->frame->kva, page_write_bytes);
+        }
 
         /* Advance. */
         write_bytes -= page_write_bytes;
@@ -139,8 +135,6 @@ lazy_load_file(struct page *page, void *aux) {
     file_seek(info->file, info->offset);
 
     /* Load this page. */
-    if (file_read(info->file, kpage, info->page_read_bytes) != (int)info->page_read_bytes)
-        return false;
-
+    file_read(info->file, kpage, info->page_read_bytes);
     return true;
 }

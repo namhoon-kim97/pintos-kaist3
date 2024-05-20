@@ -30,12 +30,6 @@ static bool load(const char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
 static void __do_fork(void *);
 extern struct lock file_lock;
-struct load_info {
-    struct file *file;
-    size_t page_read_bytes;
-    size_t page_zero_bytes;
-    off_t offset;
-};
 /* General process initializer for initd and other process. */
 static void
 process_init(void) {
