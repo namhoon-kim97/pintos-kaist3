@@ -261,12 +261,10 @@ void supplemental_page_table_kill(struct supplemental_page_table *spt UNUSED) {
 
 static void hash_destroy_support(struct hash_elem *e, void *aux) {
     struct page *p = hash_entry(e, struct page, hash_elem);
-    if (p->operations->type == VM_FILE) {
-        do_munmap(p->va);
-    } else {
+    if (p->operations->type == VM_FILE)
+        write_contents(p->va);
 
-        vm_dealloc_page(p);
-    }
+    vm_dealloc_page(p);
 }
 
 unsigned page_hash(const struct hash_elem *p_, void *aux UNUSED) {

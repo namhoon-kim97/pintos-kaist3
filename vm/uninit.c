@@ -64,6 +64,4 @@ uninit_destroy(struct page *page) {
     struct uninit_page *uninit UNUSED = &page->uninit;
     /* TODO: Fill this function.
      * TODO: If you don't have anything to do, just return. */
-    printf("이건 uninit 디스트로이\n");
-    free(uninit->aux);
 }
