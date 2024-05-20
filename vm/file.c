@@ -68,7 +68,6 @@ do_mmap(void *addr, size_t length, int writable,
         info->page_read_bytes = page_read_bytes;
         info->page_zero_bytes = page_zero_bytes;
         info->offset = offset;
-        // printf("offset = %d\n", offset);
         if (!vm_alloc_page_with_initializer(VM_FILE, addr, writable, lazy_load_file, info)) {
             return NULL;
         }
@@ -93,28 +92,18 @@ void do_munmap(void *addr) {
     if (!page)
         return;
 
-    info = (struct load_info *)page->uninit.aux;
-    file_size = file_length(info->file);
+    while (page) {
+        info = page->uninit.aux;
 
-    size_t write_bytes = info->page_read_bytes;
-    size_t zero_bytes = write_bytes % PGSIZE;
-    offset = info->offset;
-
-    while ((write_bytes > 0 || zero_bytes > 0) && page) {
-
-        size_t page_write_bytes = write_bytes < PGSIZE ? write_bytes : PGSIZE;
-        size_t page_zero_bytes = PGSIZE - page_write_bytes;
-
-        if (pml4_is_dirty(thread_current()->pml4, addr)) {
-            file_seek(info->file, offset);
-            file_write(info->file, page->frame->kva, page_write_bytes);
+        if (pml4_is_dirty(thread_current()->pml4, page->va)) {
+            file_seek(info->file, info->offset);
+            file_write(info->file, page->frame->kva, info->page_read_bytes);
+            pml4_set_dirty(thread_current()->pml4, page->va, 0);
         }
 
         /* Advance. */
-        write_bytes -= page_write_bytes;
-        zero_bytes -= page_zero_bytes;
+       
         addr += PGSIZE;
-        offset += page_write_bytes;
         spt_remove_page(&thread_current()->spt, page);
         page = spt_find_page(&thread_current()->spt, addr);
     }

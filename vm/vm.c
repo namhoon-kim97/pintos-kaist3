@@ -256,13 +256,23 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED,
 void supplemental_page_table_kill(struct supplemental_page_table *spt UNUSED) {
     /* TODO: Destroy all the supplemental_page_table hold by thread and
      * TODO: writeback all the modified contents to the storage. */
+    if (!hash_empty(&spt->pages)) {
+        struct hash_iterator i;
+        hash_first(&i, &spt->pages);
+        while (hash_next(&i)) {
+            struct page *src_page = hash_entry(hash_cur(&i), struct page, hash_elem);
+            enum vm_type src_type = VM_TYPE(src_page->operations->type);
+
+            if (src_type == VM_FILE) {
+                write_contents(src_page);
+            }
+        }
+    }
     hash_clear(&spt->pages, hash_destroy_support);
 }
 
 static void hash_destroy_support(struct hash_elem *e, void *aux) {
     struct page *p = hash_entry(e, struct page, hash_elem);
-    if (p->operations->type == VM_FILE)
-        write_contents(p->va);
 
     vm_dealloc_page(p);
 }
