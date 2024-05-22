@@ -100,7 +100,7 @@ void do_munmap(void *addr) {
             file_write(info->file, page->frame->kva, info->page_read_bytes);
             pml4_set_dirty(thread_current()->pml4, page->va, 0);
         }
-
+        pml4_clear_page(thread_current()->pml4, page->va);
         /* Advance. */
        
         addr += PGSIZE;

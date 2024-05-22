@@ -64,7 +64,7 @@ void syscall_init(void) {
               FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
     lock_init(&file_lock);
 }
-// halt exit check_addr wait exec fork create remove filesize open close read write
+
 /* The main system call interface */
 void syscall_handler(struct intr_frame *f UNUSED) {
     uint64_t syscall_num = f->R.rax;
@@ -396,13 +396,13 @@ void *mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
     struct file_descriptor *file_descriptor;
     struct file_descriptor *root_descriptor;
 
-    if (!addr)
+    if (!addr || is_kernel_vaddr(addr))
         return NULL;
 
 
     file_descriptor = get_fd(fd, &root_descriptor);
 
-    if (!file_descriptor || length == 0 || file_descriptor->_stdin || file_descriptor->_stdout || pg_ofs(addr) != 0)
+    if (!file_descriptor || length == 0 || file_descriptor->_stdin || file_descriptor->_stdout || pg_ofs(addr) != 0 || pg_ofs(offset) != 0)
         return NULL;
 
     return do_mmap(addr, length, writable, file_descriptor->file, offset);

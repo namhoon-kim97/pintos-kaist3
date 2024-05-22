@@ -260,11 +260,15 @@ void supplemental_page_table_kill(struct supplemental_page_table *spt UNUSED) {
         struct hash_iterator i;
         hash_first(&i, &spt->pages);
         while (hash_next(&i)) {
-            struct page *src_page = hash_entry(hash_cur(&i), struct page, hash_elem);
-            enum vm_type src_type = VM_TYPE(src_page->operations->type);
+            struct page *page = hash_entry(hash_cur(&i), struct page, hash_elem);
+            enum vm_type type = VM_TYPE(page->operations->type);
 
-            if (src_type == VM_FILE) {
-                write_contents(src_page);
+            if (type == VM_FILE) {
+                if (pml4_is_dirty(thread_current()->pml4, page->va)) {
+                    write_contents(page);
+                    pml4_set_dirty(thread_current()->pml4, page->va, 0);
+                }
+                pml4_clear_page(thread_current()->pml4, page->va);
             }
         }
     }
@@ -273,7 +277,6 @@ void supplemental_page_table_kill(struct supplemental_page_table *spt UNUSED) {
 
 static void hash_destroy_support(struct hash_elem *e, void *aux) {
     struct page *p = hash_entry(e, struct page, hash_elem);
-
     vm_dealloc_page(p);
 }
 
