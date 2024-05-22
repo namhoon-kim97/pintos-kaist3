@@ -88,9 +88,12 @@ do_mmap(void *addr, size_t length, int writable,
         if (!vm_alloc_page_with_initializer(VM_FILE, addr, writable, lazy_load_file, info)) {
             return NULL;
         }
-
         /* Advance. */
         read_bytes -= page_read_bytes;
+        if (!read_bytes) {
+            struct page *last_file_page = spt_find_page(&thread_current()->spt, addr);
+            last_file_page->is_last_file_page = true;
+        }
         zero_bytes -= page_zero_bytes;
         addr += PGSIZE;
         offset += page_read_bytes;
@@ -124,7 +127,6 @@ void do_munmap(void *addr) {
         spt_remove_page(&thread_current()->spt, page);
         page = spt_find_page(&thread_current()->spt, addr);
     }
-
     file_close(info->file);
 }
 

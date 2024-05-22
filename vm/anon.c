@@ -2,9 +2,12 @@
 
 #include "devices/disk.h"
 #include "vm/vm.h"
+#include "lib/kernel/bitmap.h"
+#include "threads/vaddr.h"
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
+struct bitmap *sdt;
 static bool anon_swap_in(struct page *page, void *kva);
 static bool anon_swap_out(struct page *page);
 static void anon_destroy(struct page *page);
@@ -20,7 +23,8 @@ static const struct page_operations anon_ops = {
 /* Initialize the data for anonymous pages */
 void vm_anon_init(void) {
     /* TODO: Set up the swap_disk. */
-    swap_disk = NULL;
+    swap_disk = disk_get(1, 1);
+    sdt = bitmap_create(disk_size(swap_disk) / (PGSIZE / DISK_SECTOR_SIZE)); // 전체 slot 수
 }
 
 /* Initialize the file mapping */
@@ -35,12 +39,20 @@ bool anon_initializer(struct page *page, enum vm_type type, void *kva) {
 static bool
 anon_swap_in(struct page *page, void *kva) {
     struct anon_page *anon_page = &page->anon;
+    disk_read(swap_disk, (page->slot_idx) * DISK_SLOT_SIZE, kva);
 }
 
 /* Swap out the page by writing contents to the swap disk. */
 static bool
 anon_swap_out(struct page *page) {
     struct anon_page *anon_page = &page->anon;
+    size_t slot_idx = bitmap_scan_and_flip(sdt, 0, 1, false);
+    if (slot_idx == BITMAP_ERROR)
+        return false;
+
+    page->slot_idx = slot_idx;
+    disk_write(swap_disk, slot_idx * DISK_SLOT_SIZE, page->frame->kva);
+    pml4_clear_page(thread_current()->pml4, page->va);
 }
 
 /* Destroy the anonymous page. PAGE will be freed by the caller. */

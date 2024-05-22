@@ -313,5 +313,7 @@ static void write_contents(struct page *page) {
     struct load_info *info = (struct load_info *)page->uninit.aux;
     file_seek(info->file, info->offset);
     file_write(info->file, page->frame->kva, info->page_read_bytes);
-    // file_close(info->file);
+    if (page->is_last_file_page) {
+        file_close(info->file);
+    }
 }
