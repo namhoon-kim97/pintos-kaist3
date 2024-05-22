@@ -7,6 +7,8 @@
 #include "vm/file.h"
 #include <string.h>
 
+struct list frame_list;
+
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void vm_init(void) {
@@ -18,6 +20,7 @@ void vm_init(void) {
     register_inspect_intr();
     /* DO NOT MODIFY UPPER LINES. */
     /* TODO: Your code goes here. */
+    list_init(&frame_list);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -110,10 +113,22 @@ void spt_remove_page(struct supplemental_page_table *spt, struct page *page) {
 /* Get the struct frame, that will be evicted. */
 static struct frame *
 vm_get_victim(void) {
-    struct frame *victim = NULL;
     /* TODO: The policy for eviction is up to you. */
+    struct list_elem *e;
+    struct frame *cur;
 
-    return victim;
+    for (e = list_begin(&frame_list); e != list_end(&frame_list);) {
+        cur = list_entry(e, struct frame, elem);
+        if (pml4_is_accessed(thread_current()->pml4, cur->page->va))
+            pml4_set_accessed(thread_current()->pml4, cur->page->va, 0);
+        else
+            return cur;
+        if (e->next == list_end(&frame_list))
+            e = list_begin(&frame_list);
+        else
+            e = list_next(e);
+    }
+    return NULL;
 }
 
 /* Evict one page and return the corresponding frame.
@@ -122,8 +137,8 @@ static struct frame *
 vm_evict_frame(void) {
     struct frame *victim UNUSED = vm_get_victim();
     /* TODO: swap out the victim and return the evicted frame. */
-
-    return NULL;
+    swap_out(victim->page);
+    return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -136,7 +151,8 @@ vm_get_frame(void) {
     frame->kva = palloc_get_page(PAL_ZERO | PAL_USER);
     /* TODO: Fill this function. */
     if (frame->kva == NULL)
-        PANIC("todo");
+        return vm_evict_frame();
+    list_push_back(&frame_list, &frame->elem);
     ASSERT(frame != NULL);
     ASSERT(frame->page == NULL);
     return frame;
@@ -148,7 +164,7 @@ vm_stack_growth(void *addr UNUSED) {
     vm_alloc_page(VM_ANON | VM_MARKER_0, pg_round_down(addr), true);
 
     if (!vm_claim_page(addr)) {
-        PANIC("todo");
+        PANIC("todo claim false");
     }
 }
 
@@ -243,6 +259,9 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED,
             continue;
         }
 
+        if (src_type == VM_FILE)
+            continue;
+
         vm_alloc_page(src_type, src_page->va, src_page->writable);
 
         vm_claim_page(src_page->va);
@@ -260,15 +279,11 @@ void supplemental_page_table_kill(struct supplemental_page_table *spt UNUSED) {
         struct hash_iterator i;
         hash_first(&i, &spt->pages);
         while (hash_next(&i)) {
-            struct page *page = hash_entry(hash_cur(&i), struct page, hash_elem);
-            enum vm_type type = VM_TYPE(page->operations->type);
+            struct page *src_page = hash_entry(hash_cur(&i), struct page, hash_elem);
+            enum vm_type src_type = VM_TYPE(src_page->operations->type);
 
-            if (type == VM_FILE) {
-                if (pml4_is_dirty(thread_current()->pml4, page->va)) {
-                    write_contents(page);
-                    pml4_set_dirty(thread_current()->pml4, page->va, 0);
-                }
-                pml4_clear_page(thread_current()->pml4, page->va);
+            if (src_type == VM_FILE) {
+                write_contents(src_page);
             }
         }
     }
@@ -277,6 +292,7 @@ void supplemental_page_table_kill(struct supplemental_page_table *spt UNUSED) {
 
 static void hash_destroy_support(struct hash_elem *e, void *aux) {
     struct page *p = hash_entry(e, struct page, hash_elem);
+
     vm_dealloc_page(p);
 }
 

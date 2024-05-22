@@ -33,12 +33,29 @@ bool file_backed_initializer(struct page *page, enum vm_type type, void *kva) {
 static bool
 file_backed_swap_in(struct page *page, void *kva) {
     struct file_page *file_page UNUSED = &page->file;
+
+    struct load_info *info = (struct load_info *)page->uninit.aux;
+    uint8_t *kpage = page->frame->kva;
+    if (kpage == NULL)
+        return false;
+    file_seek(info->file, info->offset);
+
+    /* Load this page. */
+    file_read(info->file, kpage, info->page_read_bytes);
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out(struct page *page) {
     struct file_page *file_page UNUSED = &page->file;
+
+    struct load_info *info = page->uninit.aux;
+    if (pml4_is_dirty(thread_current()->pml4, page->va)) {
+        file_seek(info->file, info->offset);
+        file_write(info->file, page->frame->kva, info->page_read_bytes);
+        pml4_set_dirty(thread_current()->pml4, page->va, 0);
+    }
+    pml4_clear_page(thread_current()->pml4, page->va);
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
@@ -102,7 +119,7 @@ void do_munmap(void *addr) {
         }
         pml4_clear_page(thread_current()->pml4, page->va);
         /* Advance. */
-       
+
         addr += PGSIZE;
         spt_remove_page(&thread_current()->spt, page);
         page = spt_find_page(&thread_current()->spt, addr);
