@@ -8,8 +8,8 @@
 #include <string.h>
 
 struct list frame_list;
-
-/* Initializes the virtual memory subsystem by invoking each subsystem's
+struct lock frame_lock;
+/* Initializes the virtual memorstruct lock frame_lock;y subsystem by invoking each subsystem's
  * intialize codes. */
 void vm_init(void) {
     vm_anon_init();
@@ -21,6 +21,7 @@ void vm_init(void) {
     /* DO NOT MODIFY UPPER LINES. */
     /* TODO: Your code goes here. */
     list_init(&frame_list);
+    lock_init(&frame_lock);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -116,29 +117,42 @@ vm_get_victim(void) {
     /* TODO: The policy for eviction is up to you. */
     struct list_elem *e;
     struct frame *cur;
-
+    lock_acquire(&frame_lock);
     for (e = list_begin(&frame_list); e != list_end(&frame_list);) {
         cur = list_entry(e, struct frame, elem);
         if (pml4_is_accessed(thread_current()->pml4, cur->page->va))
             pml4_set_accessed(thread_current()->pml4, cur->page->va, 0);
-        else
+        else {
+            list_remove(e);
+            lock_release(&frame_lock);
             return cur;
+        }
+
         if (e->next == list_end(&frame_list))
             e = list_begin(&frame_list);
         else
             e = list_next(e);
     }
+    lock_release(&frame_lock);
     return NULL;
 }
 
 /* Evict one page and return the corresponding frame.
  * Return NULL on error.*/
-static struct frame *
-vm_evict_frame(void) {
+static struct frame *vm_get_frame(void);
+
+static struct frame *vm_evict_frame(void) {
     struct frame *victim UNUSED = vm_get_victim();
     /* TODO: swap out the victim and return the evicted frame. */
-    swap_out(victim->page);
-    return victim;
+    if (!victim)
+        return NULL;
+    if (swap_out(victim->page)) {
+        palloc_free_page(victim->kva);
+        free(victim);
+    }
+    // victim->page = NULL;
+    // memset(victim->kva, 0, PGSIZE);
+    return vm_get_frame();
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -152,7 +166,9 @@ vm_get_frame(void) {
     /* TODO: Fill this function. */
     if (frame->kva == NULL)
         return vm_evict_frame();
+    lock_acquire(&frame_lock);
     list_push_back(&frame_list, &frame->elem);
+    lock_release(&frame_lock);
     ASSERT(frame != NULL);
     ASSERT(frame->page == NULL);
     return frame;

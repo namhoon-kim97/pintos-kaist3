@@ -350,7 +350,9 @@ process_cleanup(void) {
     struct thread *curr = thread_current();
 
     if (curr->exec_file != NULL) {
+        lock_acquire(&file_lock);
         file_close(curr->exec_file);
+        lock_release(&file_lock);
         curr->exec_file = NULL;
     }
 
