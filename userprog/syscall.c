@@ -34,7 +34,8 @@ unsigned tell(int fd);
 void close(int fd);
 void check_buffer(uint64_t *buffer);
 int dup2(int oldfd, int newfd);
-
+void *mmap(void *addr, size_t length, int writable, int fd, off_t offset);
+void munmap(void *addr);
 /* lock for access file_sys code */
 struct lock file_lock;
 
@@ -63,7 +64,7 @@ void syscall_init(void) {
               FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
     lock_init(&file_lock);
 }
-// halt exit check_addr wait exec fork create remove filesize open close read write
+
 /* The main system call interface */
 void syscall_handler(struct intr_frame *f UNUSED) {
     uint64_t syscall_num = f->R.rax;
@@ -115,6 +116,12 @@ void syscall_handler(struct intr_frame *f UNUSED) {
         break;
     case SYS_DUP2:
         f->R.rax = dup2(f->R.rdi, f->R.rsi);
+        break;
+    case SYS_MMAP:
+        f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+        break;
+    case SYS_MUNMAP:
+        munmap(f->R.rdi);
         break;
     default:
         break;
@@ -383,4 +390,25 @@ void check_buffer(uint64_t *buffer) {
         exit(-1);
     if (!p->writable)
         exit(-1);
+}
+
+void *mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
+    struct file_descriptor *file_descriptor;
+    struct file_descriptor *root_descriptor;
+
+    if (!addr || is_kernel_vaddr(addr))
+        return NULL;
+
+
+    file_descriptor = get_fd(fd, &root_descriptor);
+
+    if (!file_descriptor || length == 0 || file_descriptor->_stdin || file_descriptor->_stdout || pg_ofs(addr) != 0 || pg_ofs(offset) != 0)
+        return NULL;
+
+    return do_mmap(addr, length, writable, file_descriptor->file, offset);
+}
+
+void munmap(void *addr) {
+    do_munmap(addr);
+
 }
