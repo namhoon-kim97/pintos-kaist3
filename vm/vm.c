@@ -123,7 +123,6 @@ vm_get_victim(void) {
         if (pml4_is_accessed(thread_current()->pml4, cur->page->va))
             pml4_set_accessed(thread_current()->pml4, cur->page->va, 0);
         else {
-            list_remove(e);
             lock_release(&frame_lock);
             return cur;
         }
@@ -139,7 +138,6 @@ vm_get_victim(void) {
 
 /* Evict one page and return the corresponding frame.
  * Return NULL on error.*/
-static struct frame *vm_get_frame(void);
 
 static struct frame *vm_evict_frame(void) {
     struct frame *victim UNUSED = vm_get_victim();
@@ -147,12 +145,11 @@ static struct frame *vm_evict_frame(void) {
     if (!victim)
         return NULL;
     if (swap_out(victim->page)) {
-        palloc_free_page(victim->kva);
-        free(victim);
+        victim->page = NULL;
+        memset(victim->kva, 0 , PGSIZE);
+        return victim;
     }
-    // victim->page = NULL;
-    // memset(victim->kva, 0, PGSIZE);
-    return vm_get_frame();
+    return NULL;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -164,11 +161,13 @@ vm_get_frame(void) {
     struct frame *frame = calloc(1, sizeof *frame);
     frame->kva = palloc_get_page(PAL_ZERO | PAL_USER);
     /* TODO: Fill this function. */
-    if (frame->kva == NULL)
-        return vm_evict_frame();
-    lock_acquire(&frame_lock);
-    list_push_back(&frame_list, &frame->elem);
-    lock_release(&frame_lock);
+    if (frame->kva == NULL) {
+        frame = vm_evict_frame();
+    } else {
+        lock_acquire(&frame_lock);
+        list_push_back(&frame_list, &frame->elem);
+        lock_release(&frame_lock);
+    }
     ASSERT(frame != NULL);
     ASSERT(frame->page == NULL);
     return frame;
@@ -275,10 +274,13 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED,
             continue;
         }
 
-        if (src_type == VM_FILE)
-            continue;
-
-        vm_alloc_page(src_type, src_page->va, src_page->writable);
+        if (src_type == VM_FILE) {
+            if (!vm_alloc_page_with_initializer(src_type, src_page->va, src_page->writable, NULL, src_page->uninit.aux)) {
+                return false;
+            }
+        } else {
+            vm_alloc_page(src_type, src_page->va, src_page->writable);
+        }
 
         vm_claim_page(src_page->va);
         dst_page = spt_find_page(dst, src_page->va);

@@ -71,9 +71,11 @@ file_backed_swap_out(struct page *page) {
 static void
 file_backed_destroy(struct page *page) {
     struct file_page *file_page UNUSED = &page->file;
-    lock_acquire(&frame_lock);
-    list_remove(&page->frame->elem);
-    lock_release(&frame_lock);
+    if (page->frame->page == page) {
+        lock_acquire(&frame_lock);
+        list_remove(&page->frame->elem);
+        lock_release(&frame_lock);
+    }
 }
 
 /* Do the mmap */
