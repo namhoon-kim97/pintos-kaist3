@@ -62,6 +62,7 @@ struct page {
   bool writable;
   bool is_last_file_page;
   size_t slot_idx;
+  bool copy_on_write;
 };
 
 /* The representation of "frame" */

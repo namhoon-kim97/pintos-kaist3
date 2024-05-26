@@ -192,15 +192,19 @@ static void vm_stack_growth(void *addr UNUSED) {
 
 /* Handle the fault on write_protected page */
 static bool vm_handle_wp(struct page *page UNUSED) {
+  if (!page->copy_on_write)
+    return false;
   if (page->frame->ref_count > 1) {
     // 물리 frame 새로 할당
     struct frame *new_frame = vm_get_frame();
     if (!new_frame)
       return false;
     memcpy(new_frame->kva, page->frame->kva, PGSIZE);
+    lock_acquire(&frame_lock);
     page->frame->ref_count--;
     page->frame = new_frame;
     page->frame->ref_count = 1;
+    lock_release(&frame_lock);
     pml4_clear_page(thread_current()->pml4, page->va);
   }
   page->writable = true;
@@ -325,8 +329,12 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED,
     dst_page->frame = src_page->frame;
     dst_page->writable = false;
     src_page->writable = false;
+    dst_page->copy_on_write = true;
+    src_page->copy_on_write = true;
 
+    lock_acquire(&frame_lock);
     src_page->frame->ref_count++;
+    lock_release(&frame_lock);
 
     pml4_set_page(thread_current()->pml4, dst_page->va, dst_page->frame->kva,
                   dst_page->writable);
@@ -338,18 +346,19 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED,
 void supplemental_page_table_kill(struct supplemental_page_table *spt UNUSED) {
   /* TODO: Destroy all the supplemental_page_table hold by thread and
    * TODO: writeback all the modified contents to the storage. */
-  if (!hash_empty(&spt->pages)) {
-    struct hash_iterator i;
-    hash_first(&i, &spt->pages);
-    while (hash_next(&i)) {
-      struct page *src_page = hash_entry(hash_cur(&i), struct page, hash_elem);
-      enum vm_type src_type = VM_TYPE(src_page->operations->type);
+  // if (!hash_empty(&spt->pages)) {
+  //   struct hash_iterator i;
+  //   hash_first(&i, &spt->pages);
+  //   while (hash_next(&i)) {
+  //     struct page *src_page = hash_entry(hash_cur(&i), struct page,
+  //     hash_elem); enum vm_type src_type =
+  //     VM_TYPE(src_page->operations->type);
 
-      if (src_type == VM_FILE) {
-        write_contents(src_page);
-      }
-    }
-  }
+  //     if (src_type == VM_FILE) {
+  //       write_contents(src_page);
+  //     }
+  //   }
+  // }
   hash_clear(&spt->pages, hash_destroy_support);
 }
 
@@ -383,9 +392,17 @@ static void write_contents(struct page *page) {
 }
 
 void free_frame(struct frame *frame) {
-  if (--frame->ref_count == 0) {
-    palloc_free_page(frame->kva);
-    list_remove(&frame->elem);
-    free(frame);
+  lock_acquire(&frame_lock);
+
+  if (frame->ref_count > 1) {
+    frame->ref_count--;
+    lock_release(&frame_lock);
+    return;
   }
+
+  list_remove(&frame->elem);
+  palloc_free_page(frame->kva);
+  free(frame);
+
+  lock_release(&frame_lock);
 }

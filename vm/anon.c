@@ -46,6 +46,7 @@ bool anon_initializer(struct page *page, enum vm_type type, void *kva) {
 /* Swap in the page by read contents from the swap disk. */
 static bool anon_swap_in(struct page *page, void *kva) {
   struct anon_page *anon_page = &page->anon;
+
   lock_acquire(&swap_lock);
   for (int i = 0; i < 8; i++) {
     disk_read(swap_disk, (page->slot_idx) * 8 + i,
@@ -77,6 +78,8 @@ static bool anon_swap_out(struct page *page) {
 
   lock_release(&swap_lock);
   pml4_clear_page(thread_current()->pml4, page->va);
+  page->frame->page = NULL;
+  page->frame = NULL;
 
   return true;
 }
@@ -87,9 +90,11 @@ static void anon_destroy(struct page *page) {
   lock_acquire(&swap_lock);
   bitmap_set(sdt, page->slot_idx, true);
   lock_release(&swap_lock);
-  lock_acquire(&frame_lock);
-  // list_remove(&page->frame->elem);
-  free_frame(page->frame);
-  lock_release(&frame_lock);
+  if (page->frame && page->frame->page == page) {
+    // lock_acquire(&frame_lock);
+    //  list_remove(&page->frame->elem);
+    free_frame(page->frame);
+    // lock_release(&frame_lock);
+  }
   pml4_clear_page(thread_current()->pml4, page->va);
 }

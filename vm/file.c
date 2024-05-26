@@ -39,6 +39,7 @@ static bool file_backed_swap_in(struct page *page, void *kva) {
   struct file_page *file_page UNUSED = &page->file;
 
   struct load_info *info = (struct load_info *)page->uninit.aux;
+
   lock_acquire(&swap_file_lock);
 
   if (file_read_at(info->file, kva, info->page_read_bytes, info->offset) !=
@@ -71,8 +72,8 @@ static bool file_backed_swap_out(struct page *page) {
     pml4_set_dirty(thread_current()->pml4, page->va, 0);
   }
   pml4_clear_page(thread_current()->pml4, page->va);
-  // page->frame->page = NULL;
-  // page->frame = NULL;
+  page->frame->page = NULL;
+  page->frame = NULL;
   lock_release(&swap_file_lock);
   return true;
 }
@@ -80,6 +81,21 @@ static bool file_backed_swap_out(struct page *page) {
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void file_backed_destroy(struct page *page) {
   struct file_page *file_page UNUSED = &page->file;
+  struct load_info *info = page->uninit.aux;
+
+  lock_acquire(&swap_file_lock);
+  if (pml4_is_dirty(thread_current()->pml4, page->va)) {
+    if (file_write_at(info->file, page->frame->kva, info->page_read_bytes,
+                      info->offset) != (int)info->page_read_bytes) {
+      lock_release(&swap_file_lock);
+      return false;
+    }
+    pml4_set_dirty(thread_current()->pml4, page->va, 0);
+  }
+  if (page->is_last_file_page) {
+    file_close(info->file);
+  }
+  lock_release(&swap_file_lock);
 
   if (page->frame && page->frame->page == page) {
     lock_acquire(&swap_frame_lock);
@@ -149,7 +165,7 @@ void do_munmap(void *addr) {
     /* Advance. */
 
     addr += PGSIZE;
-    // spt_remove_page(&thread_current()->spt, page);
+    spt_remove_page(&thread_current()->spt, page);
     page = spt_find_page(&thread_current()->spt, addr);
   }
   file_close(info->file);
