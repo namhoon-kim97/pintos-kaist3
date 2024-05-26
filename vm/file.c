@@ -9,6 +9,8 @@ static bool file_backed_swap_out(struct page *page);
 static void file_backed_destroy(struct page *page);
 static bool lazy_load_file(struct page *page, void *aux);
 
+struct lock file_swap_lock;
+extern struct lock frame_lock;
 /* DO NOT MODIFY this struct */
 static const struct page_operations file_ops = {
     .swap_in = file_backed_swap_in,
@@ -19,6 +21,7 @@ static const struct page_operations file_ops = {
 
 /* The initializer of file vm */
 void vm_file_init(void) {
+    lock_init(&file_swap_lock);
 }
 
 /* Initialize the file backed page */
@@ -33,18 +36,46 @@ bool file_backed_initializer(struct page *page, enum vm_type type, void *kva) {
 static bool
 file_backed_swap_in(struct page *page, void *kva) {
     struct file_page *file_page UNUSED = &page->file;
+
+    struct load_info *info = (struct load_info *)page->uninit.aux;
+    uint8_t *kpage = page->frame->kva;
+    if (kpage == NULL)
+        return false;
+    file_seek(info->file, info->offset);
+
+    /* Load this page. */
+    lock_acquire(&file_swap_lock);
+    file_seek(info->file, info->offset);
+    file_read(info->file, kpage, info->page_read_bytes);
+    lock_release(&file_swap_lock);
+    return true;
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out(struct page *page) {
     struct file_page *file_page UNUSED = &page->file;
+    struct load_info *info = page->uninit.aux;
+    if (pml4_is_dirty(thread_current()->pml4, page->va)) {
+        lock_acquire(&file_swap_lock);
+        file_seek(info->file, info->offset);
+        file_write(info->file, page->frame->kva, info->page_read_bytes);
+        lock_release(&file_swap_lock);
+        pml4_set_dirty(thread_current()->pml4, page->va, 0);
+    }
+    pml4_clear_page(thread_current()->pml4, page->va);
+    return true;
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy(struct page *page) {
     struct file_page *file_page UNUSED = &page->file;
+    if (page->frame->page == page) {
+        lock_acquire(&frame_lock);
+        list_remove(&page->frame->elem);
+        lock_release(&frame_lock);
+    }
 }
 
 /* Do the mmap */
@@ -53,7 +84,6 @@ do_mmap(void *addr, size_t length, int writable,
         struct file *file, off_t offset) {
     void *ret = addr;
     struct file *mapping_file = file_reopen(file);
-
     size_t read_bytes = length;
     size_t zero_bytes = PGSIZE - (length % PGSIZE);
     while (read_bytes > 0 || zero_bytes > 0) {
@@ -71,9 +101,12 @@ do_mmap(void *addr, size_t length, int writable,
         if (!vm_alloc_page_with_initializer(VM_FILE, addr, writable, lazy_load_file, info)) {
             return NULL;
         }
-
         /* Advance. */
         read_bytes -= page_read_bytes;
+        if (!read_bytes) {
+            struct page *last_file_page = spt_find_page(&thread_current()->spt, addr);
+            last_file_page->is_last_file_page = true;
+        }
         zero_bytes -= page_zero_bytes;
         addr += PGSIZE;
         offset += page_read_bytes;
@@ -96,18 +129,19 @@ void do_munmap(void *addr) {
         info = page->uninit.aux;
 
         if (pml4_is_dirty(thread_current()->pml4, page->va)) {
+            lock_acquire(&file_swap_lock);
             file_seek(info->file, info->offset);
             file_write(info->file, page->frame->kva, info->page_read_bytes);
+            lock_release(&file_swap_lock);
             pml4_set_dirty(thread_current()->pml4, page->va, 0);
         }
         pml4_clear_page(thread_current()->pml4, page->va);
         /* Advance. */
-       
+
         addr += PGSIZE;
         spt_remove_page(&thread_current()->spt, page);
         page = spt_find_page(&thread_current()->spt, addr);
     }
-
     file_close(info->file);
 }
 
@@ -120,9 +154,12 @@ lazy_load_file(struct page *page, void *aux) {
     uint8_t *kpage = page->frame->kva;
     if (kpage == NULL)
         return false;
+    lock_acquire(&file_swap_lock);
     file_seek(info->file, info->offset);
 
     /* Load this page. */
     file_read(info->file, kpage, info->page_read_bytes);
+    lock_release(&file_swap_lock);
+
     return true;
 }
