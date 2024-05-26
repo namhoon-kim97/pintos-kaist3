@@ -388,7 +388,7 @@ void check_buffer(uint64_t *buffer) {
     struct page *p = spt_find_page(&thread_current()->spt, buffer);
     if (!p)
         exit(-1);
-    if (!p->writable)
+    if (!p->writable && !p->copy_on_write)
         exit(-1);
 }
 

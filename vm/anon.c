@@ -88,7 +88,8 @@ anon_destroy(struct page *page) {
     lock_acquire(&swap_lock);
     bitmap_set(sdt, page->slot_idx, true);
     lock_release(&swap_lock);
-    lock_acquire(&frame_lock);
-    list_remove(&page->frame->elem);
-    lock_release(&frame_lock);
+    if (page->frame && page->frame->page == page) {
+        free_frame(page->frame);
+    }
+    pml4_clear_page(thread_current()->pml4, page->va);
 }

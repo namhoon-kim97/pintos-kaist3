@@ -61,6 +61,7 @@ struct page {
     struct hash_elem hash_elem;
     bool writable;
     bool is_last_file_page;
+    bool copy_on_write;
     size_t slot_idx;
 };
 
@@ -69,6 +70,7 @@ struct frame {
     void *kva;
     struct page *page;
     struct list_elem elem;
+    int ref_count;
 };
 
 struct load_info {
@@ -126,5 +128,6 @@ enum vm_type page_get_type(struct page *page);
 
 unsigned page_hash(const struct hash_elem *p_, void *aux UNUSED);
 bool page_less(const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED);
+void free_frame(struct frame *frame);
 
 #endif /* VM_VM_H */
