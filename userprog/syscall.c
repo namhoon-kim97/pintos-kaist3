@@ -32,9 +32,10 @@ int write(int fd, const void *buffer, unsigned length);
 void seek(int fd, unsigned position);
 unsigned tell(int fd);
 void close(int fd);
-
+void check_buffer(uint64_t *buffer);
 int dup2(int oldfd, int newfd);
-
+void *mmap(void *addr, size_t length, int writable, int fd, off_t offset);
+void munmap(void *addr);
 /* lock for access file_sys code */
 struct lock file_lock;
 
@@ -63,12 +64,13 @@ void syscall_init(void) {
               FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
     lock_init(&file_lock);
 }
-// halt exit check_addr wait exec fork create remove filesize open close read write
+
 /* The main system call interface */
 void syscall_handler(struct intr_frame *f UNUSED) {
     uint64_t syscall_num = f->R.rax;
     // TODO: Your implementation goes here.
     struct thread *curr = thread_current();
+    curr->user_rsp = f->rsp;
     switch (syscall_num) {
     case SYS_HALT:
         power_off(); /* Halt the operating system. */
@@ -115,13 +117,19 @@ void syscall_handler(struct intr_frame *f UNUSED) {
     case SYS_DUP2:
         f->R.rax = dup2(f->R.rdi, f->R.rsi);
         break;
+    case SYS_MMAP:
+        f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+        break;
+    case SYS_MUNMAP:
+        munmap(f->R.rdi);
+        break;
     default:
         break;
     }
 }
 
 void check_addr(uint64_t *ptr) {
-    if (ptr == NULL || is_kernel_vaddr(ptr) || !pml4_get_page(thread_current()->pml4, ptr))
+    if (ptr == NULL || is_kernel_vaddr(ptr) || !spt_find_page(&thread_current()->spt, ptr))
         exit(-1);
 }
 
@@ -284,6 +292,12 @@ int read(int fd, void *buffer, unsigned length) {
 
     check_addr(buffer);
 
+    for (unsigned i = 0; i < length; i += PGSIZE) {
+        check_buffer((uint8_t *)buffer + i);
+    }
+
+    check_buffer((uint8_t *)buffer + length - 1);
+
     find_fd = get_fd(fd, &root_fd);
     if (find_fd != NULL) {
         if (find_fd->_stdin)
@@ -368,4 +382,33 @@ int dup2(int oldfd, int newfd) {
     list_push_back(&old_root_fd->dup_list, &new_fd->elem);
 
     return newfd;
+}
+
+void check_buffer(uint64_t *buffer) {
+    struct page *p = spt_find_page(&thread_current()->spt, buffer);
+    if (!p)
+        exit(-1);
+    if (!p->writable && !p->copy_on_write)
+        exit(-1);
+}
+
+void *mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
+    struct file_descriptor *file_descriptor;
+    struct file_descriptor *root_descriptor;
+
+    if (!addr || is_kernel_vaddr(addr))
+        return NULL;
+
+
+    file_descriptor = get_fd(fd, &root_descriptor);
+
+    if (!file_descriptor || length == 0 || file_descriptor->_stdin || file_descriptor->_stdout || pg_ofs(addr) != 0 || pg_ofs(offset) != 0)
+        return NULL;
+
+    return do_mmap(addr, length, writable, file_descriptor->file, offset);
+}
+
+void munmap(void *addr) {
+    do_munmap(addr);
+
 }
