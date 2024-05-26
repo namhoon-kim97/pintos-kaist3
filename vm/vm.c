@@ -147,6 +147,7 @@ static struct frame *vm_evict_frame(void) {
     if (swap_out(victim->page)) {
         victim->page = NULL;
         memset(victim->kva, 0 , PGSIZE);
+        victim->ref_count = 1;
         return victim;
     }
     return NULL;
@@ -161,6 +162,7 @@ vm_get_frame(void) {
     struct frame *frame = calloc(1, sizeof *frame);
     frame->kva = palloc_get_page(PAL_ZERO | PAL_USER);
     /* TODO: Fill this function. */
+    frame->ref_count = 1;
     if (frame->kva == NULL) {
         frame = vm_evict_frame();
     } else {
@@ -186,6 +188,24 @@ vm_stack_growth(void *addr UNUSED) {
 /* Handle the fault on write_protected page */
 static bool
 vm_handle_wp(struct page *page UNUSED) {
+    if (!page->copy_on_write)
+        return false;
+    if (page->frame->ref_count > 1) {
+        struct frame *new_frame = vm_get_frame();
+        if (!new_frame)
+            return false;
+        memcpy(new_frame->kva, page->frame->kva, PGSIZE);
+        lock_acquire(&frame_lock);
+        page->frame->ref_count--;
+        page->frame = new_frame;
+        page->frame->ref_count = 1;
+        lock_release(&frame_lock);
+        pml4_clear_page(thread_current()->pml4, page->va);
+    }
+    page->writable = true;
+    pml4_set_page(thread_current()->pml4, page->va, page->frame->kva, true);
+
+    return true;
 }
 
 /* Return true on success */
@@ -194,11 +214,11 @@ bool vm_try_handle_fault(struct intr_frame *f UNUSED, void *addr UNUSED,
     struct supplemental_page_table *spt UNUSED = &thread_current()->spt;
     struct page *page = NULL;
 
+    page = spt_find_page(spt, addr);
     if (!not_present)
-        return false; // copy-on-wrtie 구현하면 여기서 함수 호출;
+        return vm_handle_wp(page); // copy-on-wrtie 구현하면 여기서 함수 호출;
     /* TODO: Validate the fault */
     /* TODO: Your code goes here */
-    page = spt_find_page(spt, addr);
 
     if (!page) {
 
@@ -275,36 +295,44 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED,
         }
 
         if (src_type == VM_FILE) {
-            if (!vm_alloc_page_with_initializer(src_type, src_page->va, src_page->writable, NULL, src_page->uninit.aux)) {
+            struct load_info *info = malloc(sizeof(struct load_info));
+            if (!info)
+                return false;
+            *info = *(struct load_info *)src_page->uninit.aux;
+            if (!vm_alloc_page_with_initializer(VM_FILE, src_page->va,
+                                                src_page->writable,
+                                                src_page->uninit.init, info)) {
+                free(info);
                 return false;
             }
-        } else {
-            vm_alloc_page(src_type, src_page->va, src_page->writable);
+            continue;
+        }
+        if (!vm_alloc_page(src_type, src_page->va, src_page->writable))
+            return false;
+
+        dst_page = spt_find_page(dst, src_page->va);
+        if (dst_page == NULL) {
+            return false;
         }
 
-        vm_claim_page(src_page->va);
-        dst_page = spt_find_page(dst, src_page->va);
-        memcpy(dst_page->frame->kva, src_page->frame->kva, PGSIZE);
+        dst_page->operations = src_page->operations;
+        dst_page->frame = src_page->frame;
+        dst_page->writable = false;
+        src_page->writable = false;
+        dst_page->copy_on_write = true;
+        src_page->copy_on_write = true;
+
+        lock_acquire(&frame_lock);
+        src_page->frame->ref_count++;
+        lock_release(&frame_lock);
+
+        pml4_set_page(thread_current()->pml4, dst_page->va, dst_page->frame->kva, dst_page->writable);
     }
     return true;
 }
 
 /* Free the resource hold by the supplemental page table */
 void supplemental_page_table_kill(struct supplemental_page_table *spt UNUSED) {
-    /* TODO: Destroy all the supplemental_page_table hold by thread and
-     * TODO: writeback all the modified contents to the storage. */
-    if (!hash_empty(&spt->pages)) {
-        struct hash_iterator i;
-        hash_first(&i, &spt->pages);
-        while (hash_next(&i)) {
-            struct page *src_page = hash_entry(hash_cur(&i), struct page, hash_elem);
-            enum vm_type src_type = VM_TYPE(src_page->operations->type);
-
-            if (src_type == VM_FILE) {
-                write_contents(src_page);
-            }
-        }
-    }
     hash_clear(&spt->pages, hash_destroy_support);
 }
 
@@ -334,4 +362,20 @@ static void write_contents(struct page *page) {
     if (page->is_last_file_page) {
         file_close(info->file);
     }
+}
+
+void free_frame(struct frame *frame) {
+    lock_acquire(&frame_lock);
+
+    if (frame->ref_count > 1) {
+        frame->ref_count--;
+        lock_release(&frame_lock);
+        return;
+    }
+
+    list_remove(&frame->elem);
+    palloc_free_page(frame->kva);
+    free(frame);
+
+    lock_release(&frame_lock);
 }

@@ -52,30 +52,51 @@ file_backed_swap_in(struct page *page, void *kva) {
 }
 
 /* Swap out the page by writeback contents to the file. */
-static bool
-file_backed_swap_out(struct page *page) {
+static bool file_backed_swap_out(struct page *page) {
     struct file_page *file_page UNUSED = &page->file;
+    if (!page)
+        return false;
+
     struct load_info *info = page->uninit.aux;
+
+    lock_acquire(&file_swap_lock);
+
     if (pml4_is_dirty(thread_current()->pml4, page->va)) {
-        lock_acquire(&file_swap_lock);
-        file_seek(info->file, info->offset);
-        file_write(info->file, page->frame->kva, info->page_read_bytes);
-        lock_release(&file_swap_lock);
+        if (file_write_at(info->file, page->frame->kva, info->page_read_bytes,
+                          info->offset) != (int)info->page_read_bytes) {
+            lock_release(&file_swap_lock);
+            return false;
+        }
         pml4_set_dirty(thread_current()->pml4, page->va, 0);
     }
     pml4_clear_page(thread_current()->pml4, page->va);
+    page->frame->page = NULL;
+    page->frame = NULL;
+    lock_release(&file_swap_lock);
     return true;
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
-static void
-file_backed_destroy(struct page *page) {
+static void file_backed_destroy(struct page *page) {
     struct file_page *file_page UNUSED = &page->file;
-    if (page->frame->page == page) {
-        lock_acquire(&frame_lock);
-        list_remove(&page->frame->elem);
-        lock_release(&frame_lock);
+    struct load_info *info = page->uninit.aux;
+
+    lock_acquire(&file_swap_lock);
+    if (pml4_is_dirty(thread_current()->pml4, page->va)) {
+        if (file_write_at(info->file, page->frame->kva, info->page_read_bytes, info->offset) != (int)info->page_read_bytes) {
+            lock_release(&file_swap_lock);
+            return false;
+        }
+        pml4_set_dirty(thread_current()->pml4, page->va, 0);
     }
+    lock_release(&file_swap_lock);
+
+    if (page->frame && page->frame->page == page) {
+        lock_acquire(&file_swap_lock);
+        free_frame(page->frame);
+        lock_release(&file_swap_lock);
+    }
+    pml4_clear_page(thread_current()->pml4, page->va);
 }
 
 /* Do the mmap */
