@@ -52,7 +52,8 @@ struct lock file_lock;
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
 #define MSR_SYSCALL_MASK 0xc0000084 /* Mask for the eflags */
 
-void syscall_init(void) {
+void syscall_init(void)
+{
     write_msr(MSR_STAR, ((uint64_t)SEL_UCSEG - 0x10) << 48 |
                             ((uint64_t)SEL_KCSEG) << 32);
     write_msr(MSR_LSTAR, (uint64_t)syscall_entry);
@@ -66,12 +67,14 @@ void syscall_init(void) {
 }
 
 /* The main system call interface */
-void syscall_handler(struct intr_frame *f UNUSED) {
+void syscall_handler(struct intr_frame *f UNUSED)
+{
     uint64_t syscall_num = f->R.rax;
     // TODO: Your implementation goes here.
     struct thread *curr = thread_current();
     curr->user_rsp = f->rsp;
-    switch (syscall_num) {
+    switch (syscall_num)
+    {
     case SYS_HALT:
         power_off(); /* Halt the operating system. */
         break;
@@ -128,18 +131,21 @@ void syscall_handler(struct intr_frame *f UNUSED) {
     }
 }
 
-void check_addr(uint64_t *ptr) {
+void check_addr(uint64_t *ptr)
+{
     if (ptr == NULL || is_kernel_vaddr(ptr) || !spt_find_page(&thread_current()->spt, ptr))
         exit(-1);
 }
 
-void exit(int status) {
+void exit(int status)
+{
     thread_current()->exit_status = status;
     printf("%s: exit(%d)\n", thread_current()->name, thread_current()->exit_status);
     thread_exit();
 }
 
-int exec(const char *file) {
+int exec(const char *file)
+{
     char *fn_copy;
 
     check_addr(file);
@@ -153,7 +159,8 @@ int exec(const char *file) {
         exit(-1);
 }
 
-int open(const char *file) {
+int open(const char *file)
+{
     struct thread *curr = thread_current();
     struct file_descriptor *fd;
     struct file_descriptor *find_fd;
@@ -173,12 +180,14 @@ int open(const char *file) {
     lock_acquire(&file_lock);
     openfile = filesys_open(file);
     lock_release(&file_lock);
-    if (!openfile) {
+    if (!openfile)
+    {
         free(fd);
         return -1;
     }
 
-    while (1) {
+    while (1)
+    {
         find_fd = get_fd(curr->fd_count, &root_fd);
         if (!find_fd)
             break;
@@ -193,7 +202,8 @@ int open(const char *file) {
     return curr->fd_count++;
 }
 
-void close(int fd) {
+void close(int fd)
+{
     struct thread *curr = thread_current();
 
     struct file_descriptor *find_fd;
@@ -208,12 +218,16 @@ void close(int fd) {
     bool is_root = (find_fd == root_fd);
     list_remove(&find_fd->elem);
 
-    if (is_root) {
-        if (not_exsist_dup_list) {
+    if (is_root)
+    {
+        if (not_exsist_dup_list)
+        {
             lock_acquire(&file_lock);
             file_close(find_fd->file);
             lock_release(&file_lock);
-        } else {
+        }
+        else
+        {
             new_root_fd = list_entry(list_begin(&root_fd->dup_list), struct file_descriptor, elem);
             list_remove(&new_root_fd->elem);
             if (!list_empty(&root_fd->dup_list))
@@ -225,7 +239,8 @@ void close(int fd) {
     free(find_fd);
 }
 
-bool create(const char *file, unsigned initial_size) {
+bool create(const char *file, unsigned initial_size)
+{
     bool success = false;
     check_addr(file);
     lock_acquire(&file_lock);
@@ -235,7 +250,8 @@ bool create(const char *file, unsigned initial_size) {
     return success;
 }
 
-bool remove(const char *file) {
+bool remove(const char *file)
+{
     bool success = false;
     check_addr(file);
     lock_acquire(&file_lock);
@@ -245,25 +261,29 @@ bool remove(const char *file) {
     return success;
 }
 
-void seek(int fd, unsigned position) {
+void seek(int fd, unsigned position)
+{
     struct file_descriptor *find_fd;
     struct file_descriptor *root_fd;
 
     find_fd = get_fd(fd, &root_fd);
-    if (find_fd != NULL && find_fd->file != NULL) {
+    if (find_fd != NULL && find_fd->file != NULL)
+    {
         lock_acquire(&file_lock);
         file_seek(find_fd->file, position);
         lock_release(&file_lock);
     }
 }
 
-unsigned tell(int fd) {
+unsigned tell(int fd)
+{
     struct file_descriptor *find_fd;
     struct file_descriptor *root_fd;
     unsigned result;
 
     find_fd = get_fd(fd, &root_fd);
-    if (find_fd != NULL && find_fd->file != NULL) {
+    if (find_fd != NULL && find_fd->file != NULL)
+    {
         lock_acquire(&file_lock);
         result = file_tell(find_fd->file);
         lock_release(&file_lock);
@@ -271,13 +291,15 @@ unsigned tell(int fd) {
     return result;
 }
 
-int filesize(int fd) {
+int filesize(int fd)
+{
     struct file_descriptor *find_fd;
     struct file_descriptor *root_fd;
     unsigned result;
 
     find_fd = get_fd(fd, &root_fd);
-    if (find_fd != NULL && find_fd->file != NULL) {
+    if (find_fd != NULL && find_fd->file != NULL)
+    {
         lock_acquire(&file_lock);
         result = file_length(find_fd->file);
         lock_release(&file_lock);
@@ -285,24 +307,28 @@ int filesize(int fd) {
     return result;
 }
 
-int read(int fd, void *buffer, unsigned length) {
+int read(int fd, void *buffer, unsigned length)
+{
     struct file_descriptor *find_fd;
     struct file_descriptor *root_fd;
     int result = -1;
 
     check_addr(buffer);
 
-    for (unsigned i = 0; i < length; i += PGSIZE) {
+    for (unsigned i = 0; i < length; i += PGSIZE)
+    {
         check_buffer((uint8_t *)buffer + i);
     }
 
     check_buffer((uint8_t *)buffer + length - 1);
 
     find_fd = get_fd(fd, &root_fd);
-    if (find_fd != NULL) {
+    if (find_fd != NULL)
+    {
         if (find_fd->_stdin)
             return input_getc();
-        if (find_fd->file) {
+        if (find_fd->file)
+        {
             lock_acquire(&file_lock);
             result = file_read(find_fd->file, buffer, length);
             lock_release(&file_lock);
@@ -312,7 +338,8 @@ int read(int fd, void *buffer, unsigned length) {
     return result;
 }
 
-int write(int fd, const void *buffer, unsigned length) {
+int write(int fd, const void *buffer, unsigned length)
+{
     struct file_descriptor *find_fd;
     struct file_descriptor *root_fd;
     int result = 0;
@@ -320,12 +347,15 @@ int write(int fd, const void *buffer, unsigned length) {
     check_addr(buffer);
 
     find_fd = get_fd(fd, &root_fd);
-    if (find_fd != NULL) {
-        if (find_fd->_stdout) {
+    if (find_fd != NULL)
+    {
+        if (find_fd->_stdout)
+        {
             putbuf(buffer, length);
             return length;
         }
-        if (find_fd->file) {
+        if (find_fd->file)
+        {
             lock_acquire(&file_lock);
             result = file_write(find_fd->file, buffer, length);
             lock_release(&file_lock);
@@ -335,7 +365,8 @@ int write(int fd, const void *buffer, unsigned length) {
     return result;
 }
 
-pid_t fork(const char *thread_name, struct intr_frame *f) {
+pid_t fork(const char *thread_name, struct intr_frame *f)
+{
     pid_t child_pid;
     struct thread *curr = thread_current();
     struct list_elem *e;
@@ -353,11 +384,13 @@ pid_t fork(const char *thread_name, struct intr_frame *f) {
     return child->tid;
 }
 
-int wait(pid_t pid) {
+int wait(pid_t pid)
+{
     return process_wait(pid);
 }
 
-int dup2(int oldfd, int newfd) {
+int dup2(int oldfd, int newfd)
+{
     struct file_descriptor *old_fd;
     struct file_descriptor *new_fd;
     struct file_descriptor *old_root_fd;
@@ -384,21 +417,22 @@ int dup2(int oldfd, int newfd) {
     return newfd;
 }
 
-void check_buffer(uint64_t *buffer) {
+void check_buffer(uint64_t *buffer)
+{
     struct page *p = spt_find_page(&thread_current()->spt, buffer);
     if (!p)
         exit(-1);
-    if (!p->writable && !p->copy_on_write)
+    if (!p->writable && !p->original_writable)
         exit(-1);
 }
 
-void *mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
+void *mmap(void *addr, size_t length, int writable, int fd, off_t offset)
+{
     struct file_descriptor *file_descriptor;
     struct file_descriptor *root_descriptor;
 
     if (!addr || is_kernel_vaddr(addr))
         return NULL;
-
 
     file_descriptor = get_fd(fd, &root_descriptor);
 
@@ -408,7 +442,7 @@ void *mmap(void *addr, size_t length, int writable, int fd, off_t offset) {
     return do_mmap(addr, length, writable, file_descriptor->file, offset);
 }
 
-void munmap(void *addr) {
+void munmap(void *addr)
+{
     do_munmap(addr);
-
 }

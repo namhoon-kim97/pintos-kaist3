@@ -4,7 +4,8 @@
 #include "threads/palloc.h"
 #include "lib/kernel/hash.h"
 
-enum vm_type {
+enum vm_type
+{
     /* page not initialized */
     VM_UNINIT = 0,
     /* page not related to the file, aka anonymous page */
@@ -41,7 +42,8 @@ struct thread;
  * This is kind of "parent class", which has four "child class"es, which are
  * uninit_page, file_page, anon_page, and page cache (project4).
  * DO NOT REMOVE/MODIFY PREDEFINED MEMBER OF THIS STRUCTURE. */
-struct page {
+struct page
+{
     const struct page_operations *operations;
     void *va;            /* Address in terms of user space */
     struct frame *frame; /* Back reference for frame */
@@ -50,7 +52,8 @@ struct page {
 
     /* Per-type data are binded into the union.
      * Each function automatically detects the current union */
-    union {
+    union
+    {
         struct uninit_page uninit;
         struct anon_page anon;
         struct file_page file;
@@ -61,19 +64,21 @@ struct page {
     struct hash_elem hash_elem;
     bool writable;
     bool is_last_file_page;
-    bool copy_on_write;
     size_t slot_idx;
+    bool original_writable;
 };
 
 /* The representation of "frame" */
-struct frame {
+struct frame
+{
     void *kva;
     struct page *page;
     struct list_elem elem;
     int ref_count;
 };
 
-struct load_info {
+struct load_info
+{
     struct file *file;
     size_t page_read_bytes;
     size_t page_zero_bytes;
@@ -84,7 +89,8 @@ struct load_info {
  * This is one way of implementing "interface" in C.
  * Put the table of "method" into the struct's member, and
  * call it whenever you needed. */
-struct page_operations {
+struct page_operations
+{
     bool (*swap_in)(struct page *, void *);
     bool (*swap_out)(struct page *);
     void (*destroy)(struct page *);
@@ -100,7 +106,8 @@ struct page_operations {
 /* Representation of current process's memory space.
  * We don't want to force you to obey any specific design for this struct.
  * All designs up to you for this. */
-struct supplemental_page_table {
+struct supplemental_page_table
+{
     struct hash pages;
 };
 
